@@ -4,8 +4,9 @@
 // a map target and dialogue; finishing one pays out and unlocks the next.
 
 import { CONFIG } from './config.js';
-import { makeFootCop, makeThug } from './people.js';
+import { makeFootCop, makeThug, makePed } from './people.js';
 import { makeCar } from './vehicles.js';
+import { rngShuffle } from './random.js';
 
 export const MISSIONS = [
   {
@@ -179,14 +180,92 @@ function completeMission(G) {
     G.nextMissionIndex = m.index + 1;
   } else {
     G.storyComplete = true;
+    G.nextFareAt = G.time + 8;
     G.dialogue = {
       lines: [
         'Lena Cruz: That is the whole job, Rio. Solmar is yours now — keep the money coming.',
-        'Free roam: explore the city, steal cars, outrun the PD. Your progress is saved.',
+        'Free roam: explore the city, steal cars, outrun the PD. Taxi fares will keep appearing — pick them up and get paid.',
       ],
       line: 0,
       timer: 5,
     };
+  }
+}
+
+// ---- Repeatable taxi fares (free roam, after the story) ----
+// A fare is a driving job, not a story mission: pick up a waiting passenger
+// at one intersection, drop them at another, get paid, and another fare
+// appears after a breather. It gives free roam a reason to keep driving
+// after the three story missions are done.
+
+function fareSpots(G) {
+  // Two road intersections, far apart and far from the player.
+  const candidates = [];
+  for (const a of G.city.avenues) {
+    for (const s of G.city.streets) {
+      candidates.push({ x: a, y: s });
+    }
+  }
+  rngShuffle(G.rng, candidates);
+  const pickup = candidates.find((c) => Math.hypot(c.x - G.player.x, c.y - G.player.y) > 500) || candidates[0];
+  const dropoff =
+    candidates.find((c) => c !== pickup && Math.hypot(c.x - pickup.x, c.y - pickup.y) > 600) || candidates[1];
+  return [pickup, dropoff];
+}
+
+export function startFare(G) {
+  const [pickup, dropoff] = fareSpots(G);
+  const dist = Math.hypot(dropoff.x - pickup.x, dropoff.y - pickup.y);
+  const reward = Math.min(
+    CONFIG.FARE.maxPay,
+    CONFIG.FARE.basePay + Math.round(dist / 100) * CONFIG.FARE.per100m,
+  );
+  // A passenger waits at the pickup, bright shirt, standing still.
+  const passenger = makePed(G, pickup.x, pickup.y);
+  passenger.waiting = true;
+  passenger.shirt = '#ff5e8a';
+  G.people.push(passenger);
+  G.fare = {
+    stage: 0,
+    pickup,
+    dropoff,
+    reward,
+    passenger,
+    target: pickup,
+    targetLabel: 'Pick up the fare — drive to the passenger',
+  };
+  G.banner = { text: 'Taxi fare — pick up the passenger, $' + reward + ' on delivery.', timer: 3 };
+  G.audio.blip(990);
+}
+
+export function updateFare(G, dt) {
+  const f = G.fare;
+  if (!f) return;
+  const d = Math.hypot(G.player.x - f.target.x, G.player.y - f.target.y);
+  if (f.stage === 0) {
+    // The passenger only boards a car: a fare is a driving job.
+    if (G.player.inCar && d < 70) {
+      f.stage = 1;
+      f.target = f.dropoff;
+      f.targetLabel = 'Drop off the fare';
+      const at = G.people.indexOf(f.passenger);
+      if (at !== -1) G.people.splice(at, 1);
+      G.banner = { text: 'Passenger aboard — take them across town.', timer: 2.5 };
+      G.audio.blip(780);
+    }
+  } else if (f.stage === 1 && d < 80) {
+    G.player.money += f.reward;
+    G.faresDone += 1;
+    G.missionComplete = { text: 'FARE COMPLETE', reward: f.reward, timer: 4 };
+    G.banner = { text: 'Fare paid — $' + f.reward + '. Another one in a bit.', timer: 3 };
+    G.audio.jingle('fare');
+    G.dialogue = {
+      lines: ['Lena Cruz: Nice driving, Rio. Keep the fares coming — the meter never stops.'],
+      line: 0,
+      timer: 4.5,
+    };
+    G.fare = null;
+    G.nextFareAt = G.time + CONFIG.FARE.cooldownSeconds;
   }
 }
 

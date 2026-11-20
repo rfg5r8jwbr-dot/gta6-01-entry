@@ -39,6 +39,9 @@ export function makeCar(type, x, y, angle) {
     targetSpeed: rngRange(Math.random, 120, 200),
     turnCooldown: 0,
     smoke: 0,
+    // Seconds since this car started smoking (health 0). The world tows
+    // wrecks after 20 seconds; see world.js.
+    wreckTimer: 0,
   };
 }
 
@@ -107,23 +110,27 @@ export function updateTrafficCar(G, car, dt) {
   const forward = { x: Math.cos(car.angle), y: Math.sin(car.angle) };
   const right = { x: -Math.sin(car.angle), y: Math.cos(car.angle) };
 
-  // Slow down for a car ahead on the same road.
-  let desired = car.targetSpeed;
-  for (const other of G.cars) {
-    if (other === car || other.driver === 'police') continue;
-    if (other.roadKind !== car.roadKind || other.roadCoord !== car.roadCoord) continue;
-    const gap = (other.along - car.along) * (car.roadKind === 'v' ? Math.sign(forward.y) : Math.sign(forward.x));
-    if (gap > 0 && gap < 78) desired = Math.min(desired, 40);
-    if (gap > 0 && gap < 46) desired = 0;
-  }
-  // Slow for the player car ahead too.
-  const pc = playerCar(G);
-  if (pc && pc !== car) {
-    const dx = pc.x - car.x;
-    const dy = pc.y - car.y;
-    const ahead = dx * forward.x + dy * forward.y;
-    const side = Math.abs(dx * right.x + dy * right.y);
-    if (ahead > 0 && ahead < 70 && side < 30) desired = 0;
+  // A wrecked car (health 0, smoking) does not keep driving: it coasts to a
+  // stop where it was hit and waits for the tow truck.
+  let desired = car.smoke > 0 ? 0 : car.targetSpeed;
+  if (car.smoke <= 0) {
+    // Slow down for a car ahead on the same road.
+    for (const other of G.cars) {
+      if (other === car || other.driver === 'police') continue;
+      if (other.roadKind !== car.roadKind || other.roadCoord !== car.roadCoord) continue;
+      const gap = (other.along - car.along) * (car.roadKind === 'v' ? Math.sign(forward.y) : Math.sign(forward.x));
+      if (gap > 0 && gap < 78) desired = Math.min(desired, 40);
+      if (gap > 0 && gap < 46) desired = 0;
+    }
+    // Slow for the player car ahead too.
+    const pc = playerCar(G);
+    if (pc && pc !== car) {
+      const dx = pc.x - car.x;
+      const dy = pc.y - car.y;
+      const ahead = dx * forward.x + dy * forward.y;
+      const side = Math.abs(dx * right.x + dy * right.y);
+      if (ahead > 0 && ahead < 70 && side < 30) desired = 0;
+    }
   }
 
   car.speed += Math.max(-500 * dt, Math.min(260 * dt, desired - car.speed));
@@ -185,6 +192,13 @@ export function playerCar(G) {
 
 // Police cruiser pursuit: steer toward the player, accelerate, ram on contact.
 export function updatePoliceCar(G, car, dt) {
+  // A wrecked cruiser coasts to a stop and stops chasing, like traffic.
+  if (car.smoke > 0) {
+    car.speed = Math.max(0, car.speed - 600 * dt);
+    car.x += Math.cos(car.angle) * car.speed * dt;
+    car.y += Math.sin(car.angle) * car.speed * dt;
+    return;
+  }
   const target = G.player.inCar ? G.player.car : G.player;
   const tx = target.x;
   const ty = target.y;

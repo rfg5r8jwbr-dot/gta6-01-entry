@@ -181,6 +181,7 @@ export class AudioSys {
     const tunes = {
       mission: [523, 659, 784],
       complete: [523, 659, 784, 1046],
+      fare: [659, 784, 988],
       busted: [392, 330, 262],
       wasted: [330, 262, 196],
     };

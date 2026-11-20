@@ -172,9 +172,11 @@ function startPlaying() {
 function restartAfterEnd() {
   const keepMoney = G.player.money;
   const keepMissions = G.missionsDone.slice();
+  const keepFares = G.faresDone;
   const fresh = createGame(G.seed);
   fresh.player.money = keepMoney;
   fresh.missionsDone = keepMissions;
+  fresh.faresDone = keepFares;
   fresh.screen = 'play';
   Object.assign(G, fresh);
   G.input = fresh.input;
@@ -192,6 +194,7 @@ function handleScreenInput() {
     if (input.pressed('KeyC') && G.saveData) {
       G.player.money = G.saveData.money;
       G.missionsDone = G.saveData.missionsDone.slice();
+      G.faresDone = G.saveData.faresDone || 0;
       startPlaying();
     }
   } else if (G.screen === 'play') {
@@ -241,6 +244,9 @@ function frame(now) {
           carAngle: G.player.car ? +G.player.car.angle.toFixed(2) : null,
           screen: G.screen,
           wanted: G.wanted,
+          fare: G.fare ? 'stage ' + G.fare.stage + ' $' + G.fare.reward : null,
+          pedsInView: G.people.filter((p) => !p.dead && Math.abs(p.x - G.camera.x - 640) < 640 && Math.abs(p.y - G.camera.y - 400) < 400)
+            .length,
         }),
       );
     }

@@ -27,8 +27,13 @@ export function render(G, ctx) {
   drawParticles(G, ctx);
   ctx.restore();
 
-  // Warm sunset light over everything.
-  ctx.fillStyle = 'rgba(255, 150, 60, 0.05)';
+  // Warm sunset light over everything: a real golden-hour gradient, warm
+  // from the west and a touch cooler toward the sea, not a flat wash.
+  const glow = ctx.createLinearGradient(0, 0, W, H);
+  glow.addColorStop(0, 'rgba(255, 150, 60, 0.10)');
+  glow.addColorStop(0.6, 'rgba(255, 140, 70, 0.06)');
+  glow.addColorStop(1, 'rgba(255, 120, 90, 0.09)');
+  ctx.fillStyle = glow;
   ctx.fillRect(0, 0, W, H);
 
   drawHud(G, ctx);
@@ -166,10 +171,11 @@ function drawGround(G, ctx) {
     ctx.fill();
   }
 
-  // Buildings: shadow, wall, roof, lit windows.
+  // Buildings: shadow, wall, roof, lit windows. Shadows stretch long at
+  // golden hour — nine pixels per floor, down and to the east.
   for (const b of city.buildings) {
     if (b.x + b.w < x0 || b.x > x1 || b.y + b.h < y0 || b.y > y1) continue;
-    const lift = b.height * 5;
+    const lift = b.height * 9;
     ctx.fillStyle = 'rgba(0,0,0,0.30)';
     ctx.fillRect(b.x + lift, b.y + lift, b.w, b.h);
     ctx.fillStyle = b.wall;
@@ -192,6 +198,27 @@ function drawGround(G, ctx) {
     if (b.height >= 3) {
       ctx.fillStyle = 'rgba(0,0,0,0.18)';
       ctx.fillRect(b.x + b.w / 2 - 14, b.y + b.h / 2 - 10, 28, 20);
+    }
+    // Rooftop detail from city.js: a pool, AC units, or a helipad.
+    if (b.detail === 'pool' && b.w > 60 && b.h > 50) {
+      ctx.fillStyle = '#5fb8d8';
+      ctx.fillRect(b.x + b.w * 0.2, b.y + b.h * 0.25, b.w * 0.45, b.h * 0.4);
+      ctx.fillStyle = 'rgba(255,255,255,0.35)';
+      ctx.fillRect(b.x + b.w * 0.2, b.y + b.h * 0.25, b.w * 0.45, 4);
+    } else if (b.detail === 'ac') {
+      ctx.fillStyle = 'rgba(0,0,0,0.22)';
+      ctx.fillRect(b.x + 10, b.y + 10, 12, 10);
+      ctx.fillRect(b.x + b.w - 22, b.y + b.h - 20, 12, 10);
+    } else if (b.detail === 'helipad') {
+      ctx.strokeStyle = 'rgba(255,255,255,0.7)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(b.x + b.w / 2, b.y + b.h / 2, Math.min(b.w, b.h) * 0.32, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.7)';
+      ctx.font = 'bold ' + Math.max(10, Math.min(20, Math.min(b.w, b.h) * 0.3)) + 'px sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('H', b.x + b.w / 2, b.y + b.h / 2 + 5);
     }
   }
 }
@@ -222,8 +249,17 @@ function drawPickups(G, ctx) {
 
 function drawMissionMarkers(G, ctx) {
   const m = G.mission;
-  if (!m || !m.target) return;
-  const t = m.target;
+  if (m && m.target) {
+    drawTargetRing(G, ctx, m.target);
+  }
+  // A live fare gets the same marker, so the passenger and the drop-off
+  // are as findable as any mission target.
+  if (!m && G.fare && G.fare.target) {
+    drawTargetRing(G, ctx, G.fare.target);
+  }
+}
+
+function drawTargetRing(G, ctx, t) {
   if (!inView(G, t.x, t.y, 60)) return;
   const pulse = 1 + Math.sin(G.time * 4) * 0.15;
   ctx.save();
@@ -249,7 +285,23 @@ function drawMissionMarkers(G, ctx) {
 
 function drawPlayer(G, ctx) {
   const p = G.player;
-  if (p.inCar) return;
+  if (p.inCar) {
+    // Drive-by aim: a dashed line from the car toward the mouse, so shooting
+    // from behind the wheel reads the same as shooting on foot.
+    if (G.screen === 'play') {
+      const aim = G.input.mouseWorld(G);
+      ctx.save();
+      ctx.strokeStyle = 'rgba(255,255,255,0.35)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([4, 6]);
+      ctx.beginPath();
+      ctx.moveTo(p.x, p.y);
+      ctx.lineTo(aim.x, aim.y);
+      ctx.stroke();
+      ctx.restore();
+    }
+    return;
+  }
   // Rio on foot: teal jacket, easy to spot.
   const fake = { kind: 'rio', x: p.x, y: p.y, angle: p.angle, shirt: '#19b8a6', speed: 0, dead: false, deadTimer: 0 };
   drawPerson(ctx, fake, G.time + p.walkBob * 0.1);
@@ -352,17 +404,19 @@ function drawHud(G, ctx) {
     ctx.fillText('WANTED', W / 2, 62);
   }
 
-  // Clock, under the minimap.
+  // Clock, under the minimap — on a backing panel now, so the cream text
+  // never sits bare on the tan ground (it was unreadable there).
   drawMinimap(G, ctx);
+  panel(ctx, W - 184, 188, 170, 50);
   const hh = Math.floor(G.clockMinutes / 60);
   const mm = Math.floor(G.clockMinutes % 60);
   ctx.fillStyle = P.hudText;
   ctx.font = 'bold 16px sans-serif';
   ctx.textAlign = 'right';
-  ctx.fillText(String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'), W - 18, 216);
+  ctx.fillText(String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0'), W - 18, 210);
   ctx.font = '11px sans-serif';
-  ctx.fillStyle = 'rgba(255,233,196,0.75)';
-  ctx.fillText('SOLMAR • GOLDEN HOUR', W - 18, 232);
+  ctx.fillStyle = 'rgba(255,233,196,0.85)';
+  ctx.fillText('SOLMAR • GOLDEN HOUR', W - 18, 228);
 
   // Mission objective, bottom left.
   const objective = currentObjective(G);
@@ -370,7 +424,11 @@ function drawHud(G, ctx) {
   ctx.fillStyle = '#ffd23e';
   ctx.font = 'bold 13px sans-serif';
   ctx.textAlign = 'left';
-  ctx.fillText(G.mission ? G.mission.def.name.toUpperCase() : 'FREE ROAM', 26, CONFIG.VIEW_H - 44);
+  ctx.fillText(
+    G.mission ? G.mission.def.name.toUpperCase() : G.fare ? 'FARE — TAXI JOB' : 'FREE ROAM',
+    26,
+    CONFIG.VIEW_H - 44,
+  );
   ctx.fillStyle = P.hudText;
   ctx.font = '13px sans-serif';
   ctx.fillText(objective, 26, CONFIG.VIEW_H - 26);
@@ -405,22 +463,25 @@ function drawHud(G, ctx) {
     ctx.fillText(line.split(':').slice(1).join(':').trim(), (W - bw) / 2 + 18, CONFIG.VIEW_H - 90);
   }
 
-  // Small banner under the stars.
+  // Small banner under the stars — dropped lower so it cannot crowd the
+  // WANTED label (it sat 12 px under it, pink on a busy building).
   if (G.banner) {
     ctx.fillStyle = 'rgba(12,18,32,0.72)';
     const bw = ctx.measureText(G.banner.text).width + 36;
-    ctx.fillRect((W - bw) / 2, 74, bw, 28);
+    ctx.fillRect((W - bw) / 2, 100, bw, 28);
     ctx.fillStyle = P.hudText;
     ctx.font = 'bold 14px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText(G.banner.text, W / 2, 93);
+    ctx.fillText(G.banner.text, W / 2, 119);
   }
 
-  // Mute hint.
-  ctx.fillStyle = 'rgba(255,233,196,0.6)';
+  // Mute hint — on a backing panel now, for the same reason as the clock,
+  // centred at the bottom so it never sits under the speed readout.
+  panel(ctx, W / 2 - 55, CONFIG.VIEW_H - 30, 110, 20);
+  ctx.fillStyle = 'rgba(255,233,196,0.85)';
   ctx.font = '11px sans-serif';
-  ctx.textAlign = 'right';
-  ctx.fillText(G.audio.muted ? 'M — SOUND OFF' : 'M — MUTE', W - 18, CONFIG.VIEW_H - 14);
+  ctx.textAlign = 'center';
+  ctx.fillText(G.audio.muted ? 'M — SOUND OFF' : 'M — MUTE', W / 2, CONFIG.VIEW_H - 16);
 }
 
 function panel(ctx, x, y, w, h) {
@@ -432,14 +493,15 @@ function panel(ctx, x, y, w, h) {
 
 function currentObjective(G) {
   if (G.mission) return G.mission.targetLabel;
-  if (G.storyComplete) return 'Story complete — Solmar is yours. Explore, earn, evade.';
+  if (G.fare) return G.fare.targetLabel + ' — $' + G.fare.reward;
+  if (G.storyComplete) return 'Story complete — Solmar is yours. Run fares, explore, evade.';
   return 'Talk to Lena — start your first job (missions begin on their own).';
 }
 
 function drawObjectiveArrow(G, ctx) {
   const m = G.mission;
-  if (!m || !m.target) return;
-  const t = m.target;
+  const t = m ? m.target : G.fare ? G.fare.target : null;
+  if (!t) return;
   const sx = t.x - G.camera.x;
   const sy = t.y - G.camera.y;
   const W = CONFIG.VIEW_W;
@@ -504,6 +566,13 @@ function drawMinimap(G, ctx) {
   ctx.fillStyle = '#4d8a44';
   const park = G.city.blocks.find((b) => b.kind === 'park');
   if (park) ctx.fillRect(x + park.x0 * scale, y + park.y0 * scale, (park.x1 - park.x0) * scale, (park.y1 - park.y0) * scale);
+  // Buildings: without them the minimap reads as an empty brown grid.
+  // Each block is drawn in its roof colour, so Downtown reads denser than
+  // Old Town just like the city itself.
+  for (const b of G.city.buildings) {
+    ctx.fillStyle = b.roof;
+    ctx.fillRect(x + b.x * scale, y + b.y * scale, Math.max(1, b.w * scale), Math.max(1, b.h * scale));
+  }
   // Mission target.
   if (G.mission && G.mission.target) {
     const t = G.mission.target;
@@ -566,8 +635,9 @@ function drawTitle(G, ctx) {
   if (G.saveData) {
     ctx.fillStyle = '#7be382';
     ctx.font = 'bold 15px sans-serif';
+    const fares = G.saveData.faresDone ? ' • ' + G.saveData.faresDone + ' fare(s) run' : '';
     ctx.fillText(
-      'Save found: $' + G.saveData.money + ' • ' + G.saveData.missionsDone.length + ' mission(s) done — press C to continue',
+      'Save found: $' + G.saveData.money + ' • ' + G.saveData.missionsDone.length + ' mission(s) done' + fares + ' — press C to continue',
       W / 2,
       H * 0.28 + 252,
     );

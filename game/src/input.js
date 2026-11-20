@@ -28,7 +28,10 @@ export class Input {
       this.keys.delete(e.code);
     });
     window.addEventListener('blur', () => {
+      // Losing the window must also release the mouse: otherwise a held
+      // click keeps firing (or driving) after alt-tabbing back.
       this.keys.clear();
+      this.mouseDown = false;
     });
     this.canvas.addEventListener('mousemove', (e) => {
       const rect = this.canvas.getBoundingClientRect();
@@ -51,9 +54,15 @@ export class Input {
     return this.keys.has(code);
   }
 
-  // True only on the step right after the key went down.
+  // True only on the step right after the key went down. Consuming: the
+  // first read takes the press, so one press is never acted on twice — a
+  // slow frame that runs several steps used to read the same E press in
+  // every step (steal a car, exit it, steal it again, once per extra step,
+  // each steal adding a wanted star).
   pressed(code) {
-    return this.pressedKeys.has(code);
+    if (!this.pressedKeys.has(code)) return false;
+    this.pressedKeys.delete(code);
+    return true;
   }
 
   // Call once per step, after the world has read the presses.

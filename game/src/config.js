@@ -77,6 +77,16 @@ export const CONFIG = {
     thugDamage: 9,
     copDamage: 7,
     fireRate: 0.16,
+    // Shooting from a moving car is slower and wilder than on foot.
+    driveByRate: 0.28,
+  },
+
+  // Repeatable taxi fares, offered in free roam after the story ends.
+  FARE: {
+    basePay: 150,
+    per100m: 20,
+    maxPay: 400,
+    cooldownSeconds: 10,
   },
 
   // Wanted level
@@ -85,9 +95,11 @@ export const CONFIG = {
     maxStars: 5,
   },
 
-  // Traffic and pedestrians
-  TRAFFIC_CARS: 16,
-  PEDS: 26,
+  // Traffic and pedestrians — dense enough that the streets read as alive
+  // in a screenshot, not empty. v2 raised both after the first entry's
+  // contact sheet showed bare roads.
+  TRAFFIC_CARS: 28,
+  PEDS: 45,
   PICKUP_COUNT: 8,
 
   // Mission rewards

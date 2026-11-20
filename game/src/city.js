@@ -29,7 +29,11 @@ export function generateCity(rng) {
       const y0 = streets[j] + half;
       const y1 = streets[j + 1] - half;
       const isBeachRow = y0 >= CONFIG.BEACH_Y;
-      const block = { x0, y0, x1, y1, kind: 'city', isBeachRow };
+      // v2 districts: the west end is low Old Town, the middle is Downtown
+      // towers, the east is Marina by the sea. The road grid is unchanged —
+      // only the dressing differs, so every mission spot still works.
+      const district = i <= 1 ? 'oldtown' : i <= 4 ? 'downtown' : 'marina';
+      const block = { x0, y0, x1, y1, kind: 'city', isBeachRow, district };
       if (isBeachRow) {
         block.kind = 'sand';
       } else if (i === 3 && j === 2) {
@@ -54,29 +58,50 @@ export function generateCity(rng) {
       // 1 to 4 buildings per block, with a gap between them.
       const count = rngInt(rng, 1, 4);
       if (count === 1) {
-        addBuilding(rng, buildings, x0 + 18, y0 + 18, x1 - x0 - 36, y1 - y0 - 36);
+        addBuilding(rng, buildings, x0 + 18, y0 + 18, x1 - x0 - 36, y1 - y0 - 36, district);
       } else if (count === 2) {
         const vertical = rngChance(rng, 0.5);
         if (vertical) {
           const cut = rngRange(rng, 0.4, 0.6);
           const w = (x1 - x0) * cut;
-          addBuilding(rng, buildings, x0 + 12, y0 + 14, w - 24, y1 - y0 - 28);
-          addBuilding(rng, buildings, x0 + w + 12, y0 + 14, x1 - x0 - w - 24, y1 - y0 - 28);
+          addBuilding(rng, buildings, x0 + 12, y0 + 14, w - 24, y1 - y0 - 28, district);
+          addBuilding(rng, buildings, x0 + w + 12, y0 + 14, x1 - x0 - w - 24, y1 - y0 - 28, district);
         } else {
           const cut = rngRange(rng, 0.4, 0.6);
           const h = (y1 - y0) * cut;
-          addBuilding(rng, buildings, x0 + 14, y0 + 12, x1 - x0 - 28, h - 24);
-          addBuilding(rng, buildings, x0 + 14, y0 + h + 12, x1 - x0 - 28, y1 - y0 - h - 24);
+          addBuilding(rng, buildings, x0 + 14, y0 + 12, x1 - x0 - 28, h - 24, district);
+          addBuilding(rng, buildings, x0 + 14, y0 + h + 12, x1 - x0 - 28, y1 - y0 - h - 24, district);
         }
       } else {
         const mx = (x0 + x1) / 2;
         const my = (y0 + y1) / 2;
-        addBuilding(rng, buildings, x0 + 12, y0 + 12, mx - x0 - 24, my - y0 - 24);
-        addBuilding(rng, buildings, mx + 12, y0 + 12, x1 - mx - 24, my - y0 - 24);
-        addBuilding(rng, buildings, x0 + 12, my + 12, mx - x0 - 24, y1 - my - 24);
-        addBuilding(rng, buildings, mx + 12, my + 12, x1 - mx - 24, y1 - my - 24);
+        addBuilding(rng, buildings, x0 + 12, y0 + 12, mx - x0 - 24, my - y0 - 24, district);
+        addBuilding(rng, buildings, mx + 12, y0 + 12, x1 - mx - 24, my - y0 - 24, district);
+        addBuilding(rng, buildings, x0 + 12, my + 12, mx - x0 - 24, y1 - my - 24, district);
+        addBuilding(rng, buildings, mx + 12, my + 12, x1 - mx - 24, y1 - my - 24, district);
       }
     }
+  }
+
+  // The Solmar Tower: the tallest building in Downtown, with a helipad —
+  // the one landmark the skyline is read by.
+  let tower = null;
+  for (const b of buildings) {
+    if (b.district === 'downtown' && (!tower || b.height > tower.height)) tower = b;
+  }
+  if (tower) {
+    tower.height = 5;
+    tower.detail = 'helipad';
+    tower.roof = '#4a7fb5';
+  }
+
+  // Palms along the beach edge, so the sand reads as a resort strip.
+  for (let i = 0; i < 10; i++) {
+    trees.push({
+      x: 260 + i * 300 + rngRange(rng, -40, 40),
+      y: CONFIG.BEACH_Y + 34 + rngRange(rng, -8, 8),
+      r: rngRange(rng, 9, 13),
+    });
   }
 
   // Fixed mission spots, chosen on open ground (never inside a building).
@@ -116,17 +141,32 @@ export function generateCity(rng) {
   };
 }
 
-function addBuilding(rng, buildings, x, y, w, h) {
+function addBuilding(rng, buildings, x, y, w, h, district) {
   if (w < 40 || h < 40) return;
+  // Height and roof colour follow the district: low warm Old Town, tall
+  // Downtown, pale Marina. Rooftop detail (pool, AC units, helipad) is
+  // drawn by render.js from the detail tag.
+  const heights =
+    district === 'downtown' ? [2, 3, 4] : district === 'oldtown' ? [1, 2] : [1, 2, 3];
+  const roofs =
+    district === 'downtown'
+      ? ['#5b8a8a', '#4f7d6b', '#8a6f8e', '#a34d5e', '#3f6d8e']
+      : district === 'oldtown'
+        ? ['#c96f4a', '#b5533c', '#d9a05b', '#e0c184']
+        : ['#e0c184', '#d9a05b', '#5b8a8a', '#c96f4a'];
+  const roll = rng();
+  const detail = roll < 0.14 ? 'pool' : roll < 0.34 ? 'ac' : 'none';
   buildings.push({
     x,
     y,
     w,
     h,
-    height: rngInt(rng, 1, 4),
-    roof: rngPick(rng, CONFIG.PALETTE.buildingRoof),
+    height: rngPick(rng, heights),
+    roof: rngPick(rng, roofs),
     wall: rngPick(rng, CONFIG.PALETTE.buildingWall),
     lit: rngChance(rng, 0.45),
+    district,
+    detail,
   });
 }
 

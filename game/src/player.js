@@ -29,8 +29,10 @@ export function updatePlayer(G, dt) {
   if (p.inCar) updateDriving(G, dt);
   else updateOnFoot(G, dt);
 
-  // Enter or exit a car.
-  if (input.pressed('KeyE')) {
+  // Enter or exit a car. Only while actually playing: the city animates
+  // behind the title screen, and a stray E there must not steal a car
+  // before the game even starts.
+  if (G.screen === 'play' && input.pressed('KeyE')) {
     if (p.inCar) exitCar(G);
     else tryEnterCar(G);
   }
@@ -121,12 +123,14 @@ function onRoad(G, x, y) {
   return false;
 }
 
-// Nearest car the player could steal, within reach.
+// Nearest car the player could steal, within reach. A smoking wreck cannot
+// be stolen: it is waiting for the tow truck, not a getaway car.
 export function nearestCar(G, maxDist) {
   let best = null;
   let bestD = maxDist;
   for (const car of G.cars) {
     if (car.driver === 'police') continue;
+    if (car.smoke > 0) continue;
     const d = Math.hypot(car.x - G.player.x, car.y - G.player.y);
     if (d < bestD) {
       bestD = d;

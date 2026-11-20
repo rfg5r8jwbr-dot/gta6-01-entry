@@ -15,6 +15,8 @@ export function loadSave() {
       money: data.money,
       missionsDone: Array.isArray(data.missionsDone) ? data.missionsDone : [],
       bestScore: typeof data.bestScore === 'number' ? data.bestScore : 0,
+      // Fares run in free roam; older saves simply read as zero.
+      faresDone: typeof data.faresDone === 'number' ? data.faresDone : 0,
     };
   } catch {
     return null;
@@ -27,6 +29,7 @@ export function writeSave(G) {
       money: G.player.money,
       missionsDone: G.missionsDone.slice(),
       bestScore: Math.max(G.saveData ? G.saveData.bestScore : 0, G.player.money),
+      faresDone: G.faresDone,
     };
     window.localStorage.setItem(SAVE_KEY, JSON.stringify(data));
     G.saveData = data;

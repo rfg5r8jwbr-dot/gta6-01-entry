@@ -9,14 +9,17 @@ import { spawnSparks } from './vehicles.js';
 
 export function tryShoot(G) {
   const p = G.player;
-  if (p.inCar) return;
   if (G.fireCooldown > 0) return;
-  G.fireCooldown = CONFIG.COMBAT.fireRate;
+  // Shooting from a moving car is allowed, but slower than on foot, and the
+  // muzzle starts past the car's nose so the shot does not hit your own car.
+  const driveBy = p.inCar;
+  G.fireCooldown = driveBy ? CONFIG.COMBAT.driveByRate : CONFIG.COMBAT.fireRate;
   const aim = G.input.mouseWorld(G);
   const angle = Math.atan2(aim.y - p.y, aim.x - p.x);
   p.angle = angle;
-  const bx = p.x + Math.cos(angle) * 20;
-  const by = p.y + Math.sin(angle) * 20;
+  const reach = driveBy ? 30 : 20;
+  const bx = p.x + Math.cos(angle) * reach;
+  const by = p.y + Math.sin(angle) * reach;
   G.bullets.push({
     x: bx,
     y: by,
@@ -60,9 +63,12 @@ export function updateBullets(G, dt) {
       spawnSparks(G, b.x, b.y);
       continue;
     }
-    // Cars take damage.
+    // Cars take damage. Your own bullets never hit your own car (a drive-by
+    // muzzle starts just past the nose, but a turning car could still catch
+    // one — skip it explicitly).
     for (const car of G.cars) {
       if (b.life <= 0) break;
+      if (b.from === 'player' && car === G.player.car) continue;
       const dx = b.x - car.x;
       const dy = b.y - car.y;
       const ca = Math.cos(-car.angle);

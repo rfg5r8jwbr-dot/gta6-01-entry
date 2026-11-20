@@ -6,7 +6,20 @@ import { CONFIG } from './config.js';
 import { rngPick, rngRange } from './random.js';
 import { resolveBuildingCollision } from './city.js';
 
-const SHIRTS = ['#e86a5a', '#5a9bd4', '#f2c14e', '#7bc47f', '#b678d4', '#e8e8e8', '#ff9a3c', '#4ecdc4'];
+const SHIRTS = [
+  '#e86a5a',
+  '#5a9bd4',
+  '#f2c14e',
+  '#7bc47f',
+  '#b678d4',
+  '#e8e8e8',
+  '#ff9a3c',
+  '#4ecdc4',
+  '#ff5e8a',
+  '#2ee6a8',
+  '#ff7b2f',
+  '#8aff4d',
+];
 
 export function makePed(G, x, y) {
   return {
@@ -19,9 +32,36 @@ export function makePed(G, x, y) {
     state: 'walk',
     fleeTimer: 0,
     walkTimer: rngRange(G.rng, 2, 6),
+    // waiting peds stand still: a fare passenger waiting for a pickup.
+    waiting: false,
     dead: false,
     deadTimer: 0,
   };
+}
+
+// Place pedestrians on the pavements around a point (a plaza, the player's
+// street, a beach): they make the city read as lived-in wherever the camera
+// is looking. Used by the world populate step and by staged screenshots.
+export function spawnPedCluster(G, cx, cy, count) {
+  const placed = [];
+  for (let i = 0; i < count; i++) {
+    const road = nearestRoadSimple(G.city, cx + rngRange(G.rng, -260, 260), cy + rngRange(G.rng, -200, 200));
+    let x;
+    let y;
+    if (road.kind === 'v') {
+      x = road.coord + (G.rng() < 0.5 ? -52 : 52);
+      y = cy + rngRange(G.rng, -240, 240);
+    } else {
+      x = cx + rngRange(G.rng, -320, 320);
+      y = road.coord + (G.rng() < 0.5 ? -52 : 52);
+    }
+    x = Math.max(60, Math.min(CONFIG.WORLD_W - 60, x));
+    y = Math.max(60, Math.min(CONFIG.SEA_Y - 30, y));
+    const ped = spawnPed(G, x, y);
+    G.people.push(ped);
+    placed.push(ped);
+  }
+  return placed;
 }
 
 // Spawn a pedestrian on a pavement near the given point.
@@ -61,6 +101,8 @@ export function updatePed(G, ped, dt) {
     ped.deadTimer += dt;
     return;
   }
+  // A waiting ped (fare passenger) stands put until picked up.
+  if (ped.waiting) return;
   // Flee from the player when he is shooting or the wanted level is high.
   const dx = ped.x - G.player.x;
   const dy = ped.y - G.player.y;
@@ -165,6 +207,8 @@ export function makeThug(G, x, y) {
     shirt: '#7a2e2e',
     state: 'guard',
     shootTimer: rngRange(G.rng, 0.4, 1.2),
+    // Sidestep direction when dodging a car, picked once per approach.
+    dodge: 0,
     health: 100,
     dead: false,
     deadTimer: 0,
@@ -180,6 +224,17 @@ export function updateThug(G, thug, dt) {
   const dy = G.player.y - thug.y;
   const dist = Math.hypot(dx, dy) || 1;
   thug.angle = Math.atan2(dy, dx);
+  // A fast car bearing down is not a gunfight: sidestep out of its path so
+  // the crew cannot be run over on the open beach (they take no run-over
+  // damage either — see world.js).
+  const pc = G.player.inCar ? G.player.car : null;
+  if (pc && Math.abs(pc.speed) > 60 && dist < 150) {
+    if (thug.dodge === 0) thug.dodge = G.rng() < 0.5 ? 1 : -1;
+    thug.x += -Math.sin(thug.angle) * thug.dodge * 130 * dt;
+    thug.y += Math.cos(thug.angle) * thug.dodge * 130 * dt;
+  } else if (!pc || Math.abs(pc.speed) <= 60) {
+    thug.dodge = 0;
+  }
   // Keep a little distance, strafe slowly, and shoot when in range.
   if (dist > 320) {
     thug.x += (dx / dist) * thug.speed * dt;
@@ -212,16 +267,16 @@ export function drawPerson(ctx, p, time) {
   ctx.translate(p.x, p.y);
   ctx.fillStyle = 'rgba(0,0,0,0.25)';
   ctx.beginPath();
-  ctx.ellipse(2, 3, 10, 7, 0, 0, Math.PI * 2);
+  ctx.ellipse(2, 3, 11, 8, 0, 0, Math.PI * 2);
   ctx.fill();
   if (p.dead) {
     // Fallen: lying flat.
     ctx.rotate(p.angle + Math.PI / 2);
     ctx.fillStyle = p.shirt;
-    ctx.fillRect(-11, -5, 22, 10);
+    ctx.fillRect(-12, -5, 24, 10);
     ctx.fillStyle = '#e8b98a';
     ctx.beginPath();
-    ctx.arc(14, 0, 6, 0, Math.PI * 2);
+    ctx.arc(15, 0, 6.5, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
     return;
@@ -230,17 +285,17 @@ export function drawPerson(ctx, p, time) {
   // Legs swing while walking.
   const swing = Math.sin(time * 9 + p.x) * 3;
   ctx.fillStyle = '#2c3242';
-  ctx.fillRect(-4, -7 + swing * 0.4, 8, 4);
-  ctx.fillRect(-4, 3 - swing * 0.4, 8, 4);
-  // Body.
+  ctx.fillRect(-4, -8 + swing * 0.4, 8, 4);
+  ctx.fillRect(-4, 4 - swing * 0.4, 8, 4);
+  // Body — v2 made people a touch bigger so they read at screenshot scale.
   ctx.fillStyle = p.shirt;
   ctx.beginPath();
-  ctx.arc(0, 0, 8, 0, Math.PI * 2);
+  ctx.arc(0, 0, 9.5, 0, Math.PI * 2);
   ctx.fill();
   // Head.
   ctx.fillStyle = '#e8b98a';
   ctx.beginPath();
-  ctx.arc(4, 0, 5.5, 0, Math.PI * 2);
+  ctx.arc(4, 0, 6, 0, Math.PI * 2);
   ctx.fill();
   if (p.kind === 'cop') {
     ctx.fillStyle = '#20242c';

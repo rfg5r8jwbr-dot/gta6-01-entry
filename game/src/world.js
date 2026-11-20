@@ -5,9 +5,9 @@
 import { CONFIG } from './config.js';
 import { updatePlayer, addWanted } from './player.js';
 import { updateTrafficCar, updatePoliceCar, playerCar, spawnSmoke, spawnTrafficCar } from './vehicles.js';
-import { updatePed, updateFootCop, updateThug, spawnPed } from './people.js';
+import { updatePed, updateFootCop, updateThug, spawnPed, spawnPedCluster } from './people.js';
 import { updateBullets, updateParticles, tryShoot } from './combat.js';
-import { updateMission, startMission, spawnPoliceCar, spawnFootCop } from './missions.js';
+import { updateMission, startMission, spawnPoliceCar, spawnFootCop, startFare, updateFare } from './missions.js';
 import { rngRange } from './random.js';
 
 export const STEP = 1 / 60;
@@ -28,6 +28,10 @@ export function createWorld(seed) {
     nextMissionAt: 0,
     nextMissionIndex: 0,
     storyComplete: false,
+    // Repeatable taxi fares in free roam (see missions.js).
+    fare: null,
+    nextFareAt: 0,
+    faresDone: 0,
     dialogue: null,
     banner: null,
     camera: { x: 0, y: 0 },
@@ -50,11 +54,17 @@ export function populateWorld(G) {
     const car = spawnTrafficAt(G, s.x + rngRange(G.rng, -60, 60), s.y + rngRange(G.rng, -60, 60));
     if (car) G.cars.push(car);
   }
-  for (let i = 0; i < CONFIG.PEDS; i++) {
+  // Most pedestrians wander the grid; a crowd gathers where people actually
+  // are — the plaza cafe and the park — so the streets near the action are
+  // never empty.
+  const clustered = 20;
+  for (let i = 0; i < CONFIG.PEDS - clustered; i++) {
     const x = rngRange(G.rng, 150, CONFIG.WORLD_W - 150);
     const y = rngRange(G.rng, 150, CONFIG.BEACH_Y - 60);
     G.people.push(spawnPed(G, x, y));
   }
+  spawnPedCluster(G, G.city.spots.lena.x, G.city.spots.lena.y, 12);
+  spawnPedCluster(G, G.city.spots.park.x, G.city.spots.park.y, 8);
   for (let i = 0; i < CONFIG.PICKUP_COUNT; i++) spawnPickup(G);
 }
 
@@ -90,9 +100,10 @@ export function stepWorld(G, dt) {
     startMission(G, G.nextMissionIndex);
   }
 
-  // Shooting (mouse click or Space, on foot only).
+  // Shooting (mouse click or Space). On foot, and from the car too:
+  // drive-by shooting is slower (see combat.js) but it is still shooting.
   const input = G.input;
-  if ((input.mouseDown || input.down('Space')) && !G.player.inCar) tryShoot(G);
+  if (input.mouseDown || input.down('Space')) tryShoot(G);
 
   // Player.
   updatePlayer(G, dt);
@@ -112,11 +123,14 @@ export function stepWorld(G, dt) {
   }
   G.people = G.people.filter((p) => !(p.dead && p.deadTimer > 6));
 
-  // Player car running over pedestrians.
+  // Player car running over pedestrians. Thugs take no run-over damage and
+  // dodge cars (see people.js): the beach crew has to be shot, not driven
+  // over. Bystanders still count against Rio.
   const pc = playerCar(G);
   if (pc && Math.abs(pc.speed) > 60) {
     for (const person of G.people) {
       if (person.dead) continue;
+      if (person.kind === 'thug') continue;
       const d = Math.hypot(person.x - pc.x, person.y - pc.y);
       if (d < 24) {
         person.dead = true;
@@ -137,6 +151,15 @@ export function stepWorld(G, dt) {
   for (const car of G.cars) {
     if (car.smoke > 0 && G.rng() < 0.3) spawnSmoke(G, car.x, car.y);
   }
+
+  // Wrecked cars get towed after 20 seconds instead of smoking in the lane
+  // forever while traffic queues behind them. The player's own car is never
+  // towed out from under him (he bails out when it wrecks, so it is not his
+  // car by the time the timer runs out).
+  for (const car of G.cars) {
+    if (car.smoke > 0) car.wreckTimer += dt;
+  }
+  G.cars = G.cars.filter((car) => !(car.smoke > 0 && car.wreckTimer > 20 && car !== G.player.car));
 
   // Wanted level: decay when no police can see the player.
   updateWanted(G, dt);
@@ -167,6 +190,12 @@ export function stepWorld(G, dt) {
   // Missions.
   updateMission(G, dt);
 
+  // Repeatable fares in free roam, once the story is done.
+  if (!G.mission && G.storyComplete && !G.fare && G.time >= G.nextFareAt) {
+    startFare(G);
+  }
+  if (G.fare) updateFare(G, dt);
+
   // Camera follows the player, clamped to the city.
   const tx = G.player.x - CONFIG.VIEW_W / 2;
   const ty = G.player.y - CONFIG.VIEW_H / 2;
@@ -188,7 +217,10 @@ function resolveCarBumps(G) {
     for (let j = i + 1; j < cars.length; j++) {
       const a = cars[i];
       const b = cars[j];
-      if (a.driver === 'traffic' && b.driver === 'traffic') continue;
+      // v2: traffic cars get separated too. The old code skipped
+      // traffic-traffic pairs, so two cars in one lane could end up
+      // bumper-to-bumper; the follow logic alone did not always hold them
+      // apart. pushCarApart moves traffic cars in road coordinates.
       const dx = b.x - a.x;
       const dy = b.y - a.y;
       const d = Math.hypot(dx, dy);

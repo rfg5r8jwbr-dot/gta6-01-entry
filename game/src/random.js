@@ -34,3 +34,15 @@ export function rngPick(rng, list) {
 export function rngChance(rng, p) {
   return rng() < p;
 }
+
+// Shuffle a list in place (Fisher-Yates) with the seeded RNG, so a shuffled
+// pick — fare intersections, for one — stays deterministic for a seed.
+export function rngShuffle(rng, list) {
+  for (let i = list.length - 1; i > 0; i--) {
+    const j = Math.floor(rng() * (i + 1));
+    const tmp = list[i];
+    list[i] = list[j];
+    list[j] = tmp;
+  }
+  return list;
+}

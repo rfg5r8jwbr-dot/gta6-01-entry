@@ -1,15 +1,22 @@
-// Solmar Heat — staged screenshot scenes.
+// Solmar Heat — staged screenshot scenes (v2).
 // Each shot plays the real simulation forward with a scripted autopilot, so
 // the screenshots show the actual game: a lively city, driving, a police
-// chase, a mission in progress. Called with ?shot=<name>&seed=1.
-// After staging, main.js renders without stepping the world, then sets
-// window.__shotReady so a headless check can see the scene is painted.
+// chase, a beach shootout, a mission in progress. Called with
+// ?shot=<name>&seed=1. After staging, main.js renders without stepping the
+// world, then sets window.__shotReady so a headless check can see the scene
+// is painted.
+//
+// v2 re-shot the sheet: the cover is a driving shot now (the old title
+// screen wasted a quarter of the contact sheet on a menu), one shot is the
+// M3 beach shootout (the sea never appeared before), and every gameplay shot
+// puts pedestrians in frame — the first entry's streets read as empty.
 
 import { CONFIG } from './config.js';
 import { stepWorld, STEP } from './world.js';
 import { startMission } from './missions.js';
 import { giveCar } from './player.js';
 import { spawnPoliceCar } from './missions.js';
+import { spawnPed, spawnPedCluster } from './people.js';
 
 // Steer the player's car toward a target: hold W, steer with A/D, and brake
 // for sharp turns so the car turns tightly instead of clipping corners.
@@ -72,21 +79,10 @@ export function stageShot(G, name) {
   const city = G.city;
   const spots = city.spots;
 
-  if (name === 'start') {
-    // Title screen over a lively city: Rio on foot by the plaza.
-    G.player.x = spots.lena.x + 40;
-    G.player.y = spots.lena.y + 60;
-    G.player.angle = -Math.PI / 2;
-    G.camera.x = G.player.x - CONFIG.VIEW_W / 2;
-    G.camera.y = G.player.y - CONFIG.VIEW_H / 2;
-    ambientSteps(G, 600);
-    G.screen = 'title';
-    return;
-  }
-
-  if (name === 'drive') {
-    // Rio driving a sports car straight down Coral Avenue, traffic around
-    // him, mission 1 live so the objective arrow points at Lena.
+  if (name === 'cover') {
+    // The cover: Rio driving a sports car down Coral Avenue at speed,
+    // traffic around him, pedestrians on the pavements, mission 1 live so
+    // the objective arrow points at Lena.
     const x = city.avenues[3];
     const y = city.streets[2];
     giveCar(G, 'sports', x, y, Math.PI / 2);
@@ -95,6 +91,60 @@ export function stageShot(G, name) {
     G.screen = 'play';
     // Southbound lane is x = avenue - 20; stop mid-city, still at speed.
     runSteps(G, 150, () => ({ x: city.avenues[3] - 20, y: city.streets[6] }));
+    // Pedestrians in frame: a crowd on the pavements around the camera.
+    spawnPedCluster(G, G.player.x, G.player.y, 10);
+    return;
+  }
+
+  if (name === 'beach') {
+    // M3 beach shootout: Rio on foot on the open sand, four thugs around
+    // him, the sea and umbrellas behind — the fight happens on the beach,
+    // not on the avenue that runs down to it.
+    G.player.x = spots.beach.x;
+    G.player.y = spots.beach.y + 20;
+    G.player.angle = 0;
+    startMission(G, 2);
+    G.screen = 'play';
+    // Standing on the beach triggers stage 1 and spawns the crew.
+    runSteps(G, 40, null);
+    // Move the fight onto the seafront road: Rio and the crew on the
+    // waterfront, the sea as their backdrop. The last city row eats most
+    // of the sand strip, so the road at the waterline is the one open
+    // ground where the fight reads against teal, not against buildings.
+    const px = spots.beach.x + 220;
+    const py = 3000;
+    G.player.x = px;
+    G.player.y = py;
+    const thugs = G.people.filter((p) => p.kind === 'thug' && !p.dead);
+    const offsets = [
+      [-160, -20],
+      [140, -30],
+      [200, 20],
+      [-60, 40],
+    ];
+    thugs.forEach((t, i) => {
+      const o = offsets[i % offsets.length];
+      t.x = px + o[0];
+      t.y = py + o[1];
+      t.angle = Math.atan2(py - t.y, px - t.x);
+    });
+    G.camera.x = Math.max(0, Math.min(CONFIG.WORLD_W - CONFIG.VIEW_W, px - CONFIG.VIEW_W / 2));
+    G.camera.y = Math.max(0, Math.min(CONFIG.WORLD_H - CONFIG.VIEW_H, py - CONFIG.VIEW_H / 2));
+    // Face the nearest thug and fire once: flash and bullets in frame.
+    const thug = thugs[0];
+    if (thug) {
+      G.input.mouseX = thug.x - G.camera.x;
+      G.input.mouseY = thug.y - G.camera.y;
+      G.input.mouseDown = true;
+      for (let i = 0; i < 3; i++) stepWorld(G, STEP);
+      G.input.mouseDown = false;
+    }
+    // A few beachgoers on the promenade ground for life.
+    for (let i = 0; i < 3; i++) {
+      const bg = spawnPed(G, px - 320 + i * 260, 2880);
+      bg.angle = -Math.PI / 2;
+      G.people.push(bg);
+    }
     return;
   }
 
@@ -119,6 +169,11 @@ export function stageShot(G, name) {
     // Eastbound lane is y = street + 20. Stop mid-flight, still at speed —
     // the target is far ahead so the car never turns around for it.
     runSteps(G, 130, () => ({ x: city.avenues[6], y: city.streets[4] + 20 }));
+    // The flight may have run a bystander over and raised the heat past 3:
+    // re-state the banner with the real level so it matches the stars.
+    G.banner = { text: 'Wanted level ' + G.wanted + ' — lose the Solmar PD!', timer: 60 };
+    // Pedestrians on the pavements the chase runs past.
+    spawnPedCluster(G, G.player.x, G.player.y, 8);
     return;
   }
 
@@ -155,10 +210,12 @@ export function stageShot(G, name) {
         { x: city.avenues[1] - 20, y: city.streets[5] },
       ]),
     );
+    // Pedestrians in frame along the getaway route.
+    spawnPedCluster(G, G.player.x, G.player.y, 8);
     return;
   }
 
-  // Unknown shot name: fall back to the title scene.
+  // Unknown shot name: fall back to the cover scene.
   G.screen = 'title';
   ambientSteps(G, 300);
 }
