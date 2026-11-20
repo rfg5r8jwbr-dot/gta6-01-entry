@@ -6,10 +6,12 @@
 // judge reads, with the vendored make.fun library. The game is Solmar Heat, a
 // top-down 2D open-world crime game: Rio Calder explores the fictional coastal
 // city of Solmar on foot and by car, steals cars, outruns the Solmar PD under
-// a wanted level, and runs three story missions for Lena Cruz, with traffic,
-// pedestrians, combat, a HUD with a minimap, procedural sound and a save.
+// a wanted level, and runs three story missions for Lena Cruz plus repeatable
+// taxi fares in free roam, with traffic, pedestrians, drive-by shooting,
+// combat, a HUD with a minimap, procedural sound and a save.
 // Put your 3 or 4 PNG or JPEG screenshots in screenshots/ (the first by name
-// is the cover) and run it.
+// is the cover) and run it. v2 re-shot them: 1-cover (driving), 2-beach (the
+// M3 shootout), 3-chase (wanted 3), 4-mission (the M2 delivery).
 //
 // Serve it locally with `node serve.ts`, then open http://localhost:8080.
 // Outside the grader's container, MAKEFUN_OUTPUT_DIR stands in for /output:

@@ -69,4 +69,6 @@ createServer((request, response) => {
   createReadStream(file).pipe(response);
 }).listen(port, '127.0.0.1', () => {
   console.log(`game/ is on http://localhost:${port}`);
+  console.log(`self-test: http://localhost:${port}/?selftest=1`);
+  console.log(`shots: http://localhost:${port}/?shot=cover&seed=1`);
 });
